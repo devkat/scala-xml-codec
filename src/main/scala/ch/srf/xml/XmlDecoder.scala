@@ -8,25 +8,19 @@ import scalaz.{@@, Monad, NonEmptyList, \/}
 
 import scala.xml.Elem
 
-sealed abstract class XmlDecoder[F[_]:Monad, D, X, A] {
-  outer =>
-
-  def descriptor: Descriptor[D]
-
-  def dec(x: X): Result[F, A]
+final case class XmlDecoder[F[_]:Monad, D, X, A](descriptor: Descriptor[D],
+                                                 dec: X => Result[F, A],
+                                                 predicate: X => Result[F, Boolean]) {
 
   def as[B](implicit dec: Decoder[F, A, B]): XmlDecoder[F, D, X, B] =
     this ~ dec
 
   def ~[B](d: Decoder[F, A, B]): XmlDecoder[F, D, X, B] =
-    new XmlDecoder[F, D, X, B] {
-
-      override def descriptor: Descriptor[D] =
-        outer.descriptor
-
-      override def dec(x: X): Result[F, B] =
-        outer.dec(x).monadic.flatMap(a => Result.fromDisjunction(d.decode(a), descriptor.name).monadic).applicative
-    }
+    XmlDecoder[F, D, X, B](
+      descriptor,
+      dec(_).monadic.flatMap(a => Result.fromDisjunction(d.decode(a), descriptor.name).monadic).applicative,
+      predicate
+    )
 
   def ensure(e: Ensure[F, A]): XmlDecoder[F, D, X, A] =
     this ~ Decoder.ensure(e)
@@ -42,36 +36,27 @@ sealed abstract class XmlDecoder[F[_]:Monad, D, X, A] {
     Result.fromDisjunction(decoder.decode(e), descriptor.name).monadic.flatMap(dec(_).monadic).applicative.leftAsStrings
   }
 
+  def when(predicate: XmlDecoder[F, D, X, Boolean]): XmlDecoder[F, D, X, A] =
+    copy(predicate = predicate.dec)
+
 }
 
 object XmlDecoder {
-/*
-  private def prependPath[F[_]:Monad, X, A](decoder: Decoder[F, X, A], name: String) =
-    Decoder(decoder.decode _ andThen (_.prependPath(name, None)))
-*/
+
   def collection[F[_]:Monad, C[_], D, X, A](d: XmlDecoder[F, D, X, A],
                                             cd: CardinalityDecoder[F, C, X, A]): XmlDecoder[F, D, C[X], C[A]] =
-    new XmlDecoder[F, D, C[X], C[A]] {
-
-      override def descriptor: Descriptor[D] =
-        d.descriptor
-
-      override def dec(x: C[X]): Result[F, C[A]] =
-        cd.decode(d.dec, x)
-
-    }
-
+    XmlDecoder[F, D, C[X], C[A]](
+      d.descriptor,
+      x => cd.wrapPredicate(d.predicate)(x).monadic.flatMap(y => cd.decode(d.dec, y).monadic).applicative,
+      _ => Result.success(true)
+    )
 
   private def textDecoder[F[_]:Monad, T]: XmlDecoder[F, Unit, String @@ T, String] =
-    new XmlDecoder[F, Unit, String @@ T, String] {
-
-      override def descriptor: Descriptor[Unit] =
-        Descriptor.text
-
-      override def dec(x: String @@ T): Result[F, String] =
-        Result.success(x.unwrap).prependPath(descriptor.name, None)
-
-    }
+    XmlDecoder[F, Unit, String @@ T, String](
+      Descriptor.text,
+      x => Result.success(x.unwrap).prependPath(Descriptor.text.name, None),
+      _ => Result.success(true)
+    )
 
   def text[F[_]:Monad]: XmlDecoder[F, Unit, String @@ TextValue, String] =
     textDecoder[F, TextValue]
@@ -80,36 +65,30 @@ object XmlDecoder {
     textDecoder[F, NonEmptyTextValue]
 
   def attr[F[_]:Monad](name: String): XmlDecoder[F, String, String @@ AttrValue, String] =
-    new XmlDecoder[F, String, String @@ AttrValue, String] {
-
-      override def dec(x: String @@ AttrValue): Result[F, String] =
-        Result.success(x.unwrap).prependPath(descriptor.name, None)
-
-      override def descriptor: Descriptor[String] =
-        Descriptor.attr(name)
-
-    }
+    XmlDecoder[F, String, String @@ AttrValue, String](
+      Descriptor.attr(name),
+      a => Result.success(a.unwrap).prependPath(name, None),
+      _ => Result.success(true)
+    )
 
   def elem[F[_]:Monad, CS, C, A](name: String, children: CS)
                                 (implicit
                                  hListDecoder: HListDecoder[F, CS, C],
-                                 compact: CompactHList[C, A]): XmlDecoder[F, String, Elem, A] =
-    new XmlDecoder[F, String, Elem, A] {
+                                 compact: CompactHList[C, A]): XmlDecoder[F, String, Elem, A] = {
 
-      private def checkName: Decoder[F, Elem, Elem] =
-        Decoder.ensure[F, Elem](EnsureOps.check(_.label === name, e => s"Found <${e.label}> instead of <$name>"))
+    def checkName: Decoder[F, Elem, Elem] =
+      Decoder.ensure[F, Elem](EnsureOps.check(_.label === name, e => s"Found <${e.label}> instead of <$name>"))
 
-      override def descriptor: Descriptor[String] =
-        Descriptor.elem(name)
-
-      override def dec(e: Elem): Result[F, A] =
-        Result
-          .fromDisjunction(checkName.decode(e), descriptor.name)
-          .monadic
-          .flatMap(_ => hListDecoder(children, e).prependPath(descriptor.name, None).monadic)
-          .map(compact.to)
-          .applicative
-
-    }
+    XmlDecoder[F, String, Elem, A](
+      Descriptor.elem(name),
+      e => Result
+        .fromDisjunction(checkName.decode(e), name)
+        .monadic
+        .flatMap(_ => hListDecoder(children, e).prependPath(name, None).monadic)
+        .map(compact.to)
+        .applicative,
+      _ => Result.success(true)
+    )
+  }
 
 }
