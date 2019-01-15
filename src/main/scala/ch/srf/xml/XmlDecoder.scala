@@ -38,8 +38,8 @@ final case class XmlDecoder[F[_]:Monad, X, A](name: String,
     Result.fromDisjunction(decoder.decode(e), segment).monadic.flatMap(dec(_).monadic).applicative.leftAsStrings
   }
 
-  def when(filter: X => Result[F, Boolean]): XmlDecoder[F, X, A] =
-    this.copy(filter = filter)
+  def when(filter: XmlDecoder[F, X, Boolean]): XmlDecoder[F, X, A] =
+    this.copy(filter = filter.dec)
 
 }
 
@@ -55,10 +55,10 @@ object XmlDecoder {
             .filter(x)
             .monadic
             .flatMap(_.fold(
+              d.dec(x).map(Option.apply).monadic,
               Result
                 .error[F, Option[A]](Path((d.segment, Option.empty[Int]).wrapNel), "Predicate failed")
-                .monadic,
-              d.dec(x).map(Option.apply).monadic
+                .monadic
             ))
             .applicative,
         Option.empty[A].point[Result[F, ?]]
