@@ -9,12 +9,12 @@ import scalaz.{Equal, NonEmptyList, Show}
 
 private[xml] final case class Path(elems: NonEmptyList[(String, Option[Int])]) {
 
-  def prepend(name: String, position: Option[Int]): Path =
-    Path((s"$name", position) <:: elems)
+  def prepend(segment: String, position: Option[Int]): Path =
+    Path((s"$segment", position) <:: elems)
 
   def updatePos(pos: Int): Path = {
-    val (name, _) = elems.head
-    Path(NonEmptyList.nel((name, Some(pos)), elems.tail))
+    val (segment, _) = elems.head
+    Path(NonEmptyList.nel((segment, Some(pos)), elems.tail))
   }
 
 }
@@ -24,7 +24,7 @@ private[xml] object Path {
   implicit def showInstance: Show[Path] =
     new Show[Path] {
       override def shows(path: Path): String =
-        path.elems.map { case (name, pos) => name + pos.fold("")("[" + _.toString + "]") }.foldLeft1(_ + "/" + _)
+        path.elems.map { case (segment, pos) => segment + pos.fold("")("[" + _.toString + "]") }.foldLeft1(_ + "/" + _)
     }
 
   implicit def equalInstance: Equal[Path] =

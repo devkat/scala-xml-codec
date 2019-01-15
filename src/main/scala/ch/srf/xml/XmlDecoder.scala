@@ -3,8 +3,11 @@ package ch.srf.xml
 import ch.srf.xml.util.{CompactHList, Flatten}
 import scalaz.std.string.stringInstance
 import scalaz.syntax.all._
+import scalaz.syntax.std.boolean._
+import scalaz.syntax.std.list._
+import scalaz.syntax.std.option._
 import scalaz.syntax.tag._
-import scalaz.{@@, Applicative, Monad, NonEmptyList, Traverse, \/}
+import scalaz.{@@, Monad, NonEmptyList, \/}
 
 import scala.xml.Elem
 
@@ -35,7 +38,7 @@ final case class XmlDecoder[F[_]:Monad, X, A](name: String,
     Result.fromDisjunction(decoder.decode(e), segment).monadic.flatMap(dec(_).monadic).applicative.leftAsStrings
   }
 
-  def when(filter: X => F[Boolean]): XmlDecoder[F, D, X, A] =
+  def when(filter: X => Result[F, Boolean]): XmlDecoder[F, X, A] =
     this.copy(filter = filter)
 
 }
@@ -43,11 +46,24 @@ final case class XmlDecoder[F[_]:Monad, X, A](name: String,
 object XmlDecoder {
 
   def option[F[_]:Monad, X, A](d: XmlDecoder[F, X, A]): XmlDecoder[F, Option[X], Option[A]] = {
-    import scalaz.std.option.optionInstance
     XmlDecoder[F, Option[X], Option[A]](
       d.name,
       d.segment,
-      _ traverse d.dec
+      _
+        .toMaybe.cata(x =>
+          d
+            .filter(x)
+            .monadic
+            .flatMap(_.fold(
+              Result
+                .error[F, Option[A]](Path((d.segment, Option.empty[Int]).wrapNel), "Predicate failed")
+                .monadic,
+              d.dec(x).map(Option.apply).monadic
+            ))
+            .applicative,
+        Option.empty[A].point[Result[F, ?]]
+      ),
+      _ => Result.success(true)
     )
   }
 
@@ -56,7 +72,12 @@ object XmlDecoder {
     XmlDecoder[F, List[(X, Option[Int])], List[A]](
       d.name,
       d.segment,
-      decodeTraverse(d.dec, _)
+      _
+        .filterM { case (e, _) => d.filter(e) }
+        .monadic
+        .flatMap(_.traverse { case (e, pos) => pos.fold(d.dec(e))(d.dec(e).updatePos) }.monadic)
+        .applicative,
+      _ => Result.success(true)
     )
   }
 
@@ -64,21 +85,29 @@ object XmlDecoder {
     XmlDecoder[F, NonEmptyList[(X, Option[Int])], NonEmptyList[A]](
       d.name,
       d.segment,
-      decodeTraverse(d.dec, _)
+      _
+        .toList
+        .filterM { case (e, _) => d.filter(e) }
+        .monadic
+        .flatMap(
+          _.toNel.toMaybe.cata(
+            _.traverse { case (e, pos) => pos.fold(d.dec(e))(d.dec(e).updatePos) }.monadic,
+            Result
+              .error[F, NonEmptyList[A]](Path((d.segment, Option.empty[Int]).wrapNel),
+              "No elements matching the predicate")
+              .monadic
+          )
+        )
+        .applicative,
+      _ => Result.success(true)
     )
-
-  private def decodeTraverse[
-  F[_]: Applicative,
-  G[_]: Traverse, X, A](dec: X => Result[F, A],
-                        xs: G[(X, Option[Int])]): Result[F, G[A]] =
-    xs.traverse { case (e, pos) => pos.fold(dec(e))(dec(e).updatePos) }
-
 
   private def textDecoder[F[_]:Monad, T]: XmlDecoder[F, String @@ T, String] =
     XmlDecoder(
       "",
       "<text>",
-      x => Result.success(x.unwrap).prependPath("", None)
+      x => Result.success(x.unwrap).prependPath("", None),
+      _ => Result.success(true)
     )
 
   def text[F[_]:Monad]: XmlDecoder[F, String @@ TextValue, String] =
@@ -91,7 +120,8 @@ object XmlDecoder {
     XmlDecoder(
       name,
       "@" + name,
-      x => Result.success(x.unwrap).prependPath("@" + name, None)
+      x => Result.success(x.unwrap).prependPath("@" + name, None),
+      _ => Result.success(true)
     )
 
   def elem[F[_]:Monad, CS, C, A](name: String, children: CS)
@@ -110,7 +140,8 @@ object XmlDecoder {
         .monadic
         .flatMap(_ => hListDecoder(children, e).prependPath(name, None).monadic)
         .map(compact.to)
-        .applicative
+        .applicative,
+      _ => Result.success(true)
     )
 
   }
