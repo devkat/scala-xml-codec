@@ -1,29 +1,27 @@
 package ch.srf.xml
 
 import ch.srf.xml.util.CompactHList
-import scalaz.std.list.listInstance
-import scalaz.std.option.optionInstance
 import scalaz.{@@, Monad, NonEmptyList}
 import shapeless.{::, HList, HNil}
 
 class EncoderDsl[F[_]:Monad] extends EnsureOps {
 
-  def optional[S, D, X, A](encoder: XmlEncoder[F, D, X, A]): XmlEncoder[F, D, Option[X], Option[A]] =
-    XmlEncoder.collection[F, Option, D, X, A](encoder)
+  def optional[S, X, A](encoder: XmlEncoder[F, X, A]): XmlEncoder[F, Option[X], Option[A]] =
+    XmlEncoder.option[F, X, A](encoder)
 
-  def zeroOrMore[S, D, X, A](encoder: XmlEncoder[F, D, X, A]): XmlEncoder[F, D, List[X], List[A]] =
-    XmlEncoder.collection[F, List, D, X, A](encoder)
+  def zeroOrMore[S, X, A](encoder: XmlEncoder[F, X, A]): XmlEncoder[F, List[(X, Option[Int])], List[A]] =
+    XmlEncoder.list[F, X, A](encoder)
 
-  def oneOrMore[S, D, X, A](encoder: XmlEncoder[F, D, X, A]): XmlEncoder[F, D, NonEmptyList[X], NonEmptyList[A]] =
-    XmlEncoder.collection[F, NonEmptyList, D, X, A](encoder)
+  def oneOrMore[S, X, A](encoder: XmlEncoder[F, X, A]): XmlEncoder[F, NonEmptyList[(X, Option[Int])], NonEmptyList[A]] =
+    XmlEncoder.nel[F, X, A](encoder)
 
-  def attr(name: String): XmlEncoder[F, String, String @@ AttrValue, String] =
+  def attr(name: String): XmlEncoder[F, String @@ AttrValue, String] =
     XmlEncoder.attr(name)
 
-  def text: XmlEncoder[F, Unit, String @@ TextValue, String] =
+  def text: XmlEncoder[F, String @@ TextValue, String] =
     XmlEncoder.text
 
-  def nonEmptyText: XmlEncoder[F, Unit, String @@ NonEmptyTextValue, String] =
+  def nonEmptyText: XmlEncoder[F, String @@ NonEmptyTextValue, String] =
     XmlEncoder.nonEmptyText
 
   private def elem[SC <: HList, C, A](name: String, children: SC)

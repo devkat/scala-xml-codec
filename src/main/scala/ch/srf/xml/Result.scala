@@ -35,8 +35,8 @@ private[xml] object Result {
   def error[F[_]:Applicative, A](path: Path, msg: String): Result[F, A] =
     Result((path, msg).wrapNel.left[A].point[F])
 
-  def fromDisjunction[F[_]:Applicative, A](d: F[String \/ A], name: String): Result[F, A] =
-    Result(d.map(_.leftMap(e => (Path((name, Option.empty[Int]).wrapNel), e).wrapNel)))
+  def fromDisjunction[F[_]:Applicative, A](d: F[String \/ A], segment: String): Result[F, A] =
+    Result(d.map(_.leftMap(e => (Path((segment, Option.empty[Int]).wrapNel), e).wrapNel)))
 
   implicit def applicativeInstance[F[_]:Applicative]: Applicative[Result[F, ?]] =
     new Applicative[Result[F, ?]] {

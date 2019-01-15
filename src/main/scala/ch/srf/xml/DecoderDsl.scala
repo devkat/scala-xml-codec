@@ -1,28 +1,27 @@
 package ch.srf.xml
 
 import ch.srf.xml.util.CompactHList
-import ch.srf.xml.util.CompactHList
 import scalaz.{@@, Monad, NonEmptyList}
 import shapeless.{::, HList, HNil}
 
 class DecoderDsl[F[_]:Monad] extends EnsureOps {
 
-  def optional[S, D, X, A](decoder: XmlDecoder[F, D, X, A]): XmlDecoder[F, D, Option[X], Option[A]] =
-    XmlDecoder.collection[F, Option, D, X, A](decoder, CardinalityDecoder.option)
+  def optional[S, X, A](decoder: XmlDecoder[F, X, A]): XmlDecoder[F, Option[X], Option[A]] =
+    XmlDecoder.option[F, X, A](decoder)
 
-  def zeroOrMore[S, D, X, A](decoder: XmlDecoder[F, D, X, A]): XmlDecoder[F, D, List[X], List[A]] =
-    XmlDecoder.collection[F, List, D, X, A](decoder, CardinalityDecoder.list)
+  def zeroOrMore[S, X, A](decoder: XmlDecoder[F, X, A]): XmlDecoder[F, List[(X, Option[Int])], List[A]] =
+    XmlDecoder.list[F, X, A](decoder)
 
-  def oneOrMore[S, D, X, A](decoder: XmlDecoder[F, D, X, A]): XmlDecoder[F, D, NonEmptyList[X], NonEmptyList[A]] =
-    XmlDecoder.collection[F, NonEmptyList, D, X, A](decoder, CardinalityDecoder.nel)
+  def oneOrMore[S, X, A](decoder: XmlDecoder[F, X, A]): XmlDecoder[F, NonEmptyList[(X, Option[Int])], NonEmptyList[A]] =
+    XmlDecoder.nel[F, X, A](decoder)
 
-  def attr(name: String): XmlDecoder[F, String, String @@ AttrValue, String] =
+  def attr(name: String): XmlDecoder[F, String @@ AttrValue, String] =
     XmlDecoder.attr(name)
 
-  def text: XmlDecoder[F, Unit, String @@ TextValue, String] =
+  def text: XmlDecoder[F, String @@ TextValue, String] =
     XmlDecoder.text
 
-  def nonEmptyText: XmlDecoder[F, Unit, String @@ NonEmptyTextValue, String] =
+  def nonEmptyText: XmlDecoder[F, String @@ NonEmptyTextValue, String] =
     XmlDecoder.nonEmptyText
 
   private def elem[SC <: HList, C, A](name: String, children: SC)
