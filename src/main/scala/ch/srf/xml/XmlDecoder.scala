@@ -10,16 +10,15 @@ import scala.xml.Elem
 
 final case class XmlDecoder[F[_]:Monad, X, A](name: String,
                                               segment: String,
-                                              dec: X => Result[F, A]) {
+                                              dec: X => Result[F, A],
+                                              filter: X => Result[F, Boolean]) {
 
   def as[B](implicit dec: Decoder[F, A, B]): XmlDecoder[F, X, B] =
     this ~ dec
 
   def ~[B](d: Decoder[F, A, B]): XmlDecoder[F, X, B] =
-    XmlDecoder(
-      name,
-      segment,
-      dec(_).monadic.flatMap(a => Result.fromDisjunction(d.decode(a), segment).monadic).applicative
+    this.copy(
+      dec = dec(_).monadic.flatMap(a => Result.fromDisjunction(d.decode(a), segment).monadic).applicative
     )
 
   def ensure(e: Ensure[F, A]): XmlDecoder[F, X, A] =
@@ -35,6 +34,9 @@ final case class XmlDecoder[F[_]:Monad, X, A](name: String,
     val decoder = Decoder.fromDisjunction[F, Elem, X](e => ev(e, name))
     Result.fromDisjunction(decoder.decode(e), segment).monadic.flatMap(dec(_).monadic).applicative.leftAsStrings
   }
+
+  def when(filter: X => F[Boolean]): XmlDecoder[F, D, X, A] =
+    this.copy(filter = filter)
 
 }
 
