@@ -36,10 +36,10 @@ XML validation and binding library.
 
 Supported cardinalities for node collections:
 
-    …              → A
-    optional(…)    → Option[A]
-    oneOrMore(…)   → NonEmptyList[A]
-    zeroOrMore(…)  → List[A]
+    …              -> A
+    optional(…)    -> Option[A]
+    oneOrMore(…)   -> NonEmptyList[A]
+    zeroOrMore(…)  -> List[A]
 
 #### Elements
 
@@ -61,8 +61,8 @@ Attributes, text and child elements are declared as children:
 
 Mandatory/optional attributes:
 
-    attr("name")            → String
-    optional(attr("name"))  → Option[String]
+    attr("name")            -> String
+    optional(attr("name"))  -> Option[String]
 
 #### Text
 
@@ -70,12 +70,12 @@ There are two flavours of handling text:
 
 By combining `nonEmptyText` with the `one` and `optional` cardinalities. In this case it is assured that no empty text values are emitted:
 
-    nonEmptyText            → String
-    optional(nonEmptyText)  → Option[String]
+    nonEmptyText            -> String
+    optional(nonEmptyText)  -> Option[String]
 
 By using `text` directly. In this case an empty text value are emitted if the parent element doesn't contain any text:
 
-    text                    → String
+    text                    -> String
 
 The schema `nonEmptyText` is equivalent to `text.ensure(nonEmpty)`.
 
@@ -261,3 +261,40 @@ Decoding XML targeting the `EnvReader` effect monad:
       .decode(xml)
       .run(env) // Execute the effect
 
+#### Conditional Decoding
+
+It is possible to conditionally decode nodes using the `when` method. In the following example, the element is only decoded if it has an `id` attribute, otherwise it is ignored:
+
+    elem1("foo", …)
+      .when(_.attribute("id").isDefined)
+      .as[FooWithId]
+
+A typical use-case is decoding different types from elements with the same name. In this case the `when` function can be used as discriminator:
+
+      sealed trait Child
+
+      final case class Foo(text: String) extends Child
+      final case class Bar(text: String) extends Child
+
+      final case class FooBar(foo: Foo, bar: Bar)
+
+      def attrEquals(name: String, value: String)(e: Elem): Boolean =
+        (e \ s"@$name").headOption.map(_.text).contains(value)
+
+      import Dsl.simple.decode._
+
+      val elem =
+        elem2("parent",
+          elem1("child", text).when(attrEquals("type", "foo")).as[Foo],
+          elem1("child", text).when(attrEquals("type", "bar")).as[Bar],
+        ).as[FooBar]
+    
+      val xml =
+        <parent>
+          <child type="foo">1</child>
+          <child type="bar">2</child>
+        </parent>
+
+      elem.decode(xml) // FooBar(Foo("1"), Bar("2"))
+
+The `when` function accepts a function which returns an effectful value `F[Boolean]`, so it is possible to use effects (e.g. read values from an environment using a `Reader`).
